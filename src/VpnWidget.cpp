@@ -548,7 +548,7 @@ void VpnWidget::fetchWireGuardConfig()
         return;
     }
     
-    QNetworkRequest request(QUrl("http://3.82.200.187:8086/wireguard/generate-config"));
+    QNetworkRequest request(QUrl("http://98.81.124.77:8086/wireguard/generate-config"));
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Authorization", QString("Bearer %1").arg(token).toUtf8());
     

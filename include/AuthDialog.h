@@ -19,6 +19,7 @@ public:
     ~AuthDialog();
 
     static QString getCurrentAuthToken();
+    static QString getBearerToken();
     static void clearCurrentAuthToken();
 
 private slots:

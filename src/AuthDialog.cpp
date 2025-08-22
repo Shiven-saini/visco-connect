@@ -2,6 +2,7 @@
 #include <QtWidgets>
 #include <QtNetwork>
 #include <QSettings>
+#include <QUrlQuery>
 
 AuthDialog::AuthDialog(QWidget *parent) : QDialog(parent)
 {
@@ -30,7 +31,7 @@ AuthDialog::AuthDialog(QWidget *parent) : QDialog(parent)
 
     /* ----------- Credentials section ----------- */
     m_userEdit = new QLineEdit(this);
-    m_userEdit->setPlaceholderText("Username");
+    m_userEdit->setPlaceholderText("Email Address");
 
     m_passEdit = new QLineEdit(this);
     m_passEdit->setPlaceholderText("Password");
@@ -94,11 +95,19 @@ void AuthDialog::performAuthentication(const QString &user,const QString &pass)
     showStatus("Authenticating…", Qt::darkGray);
     m_loginBtn->setEnabled(false);
 
-    QNetworkRequest req(QUrl("http://3.82.200.187:8086/auth/login"));
-    req.setHeader(QNetworkRequest::ContentTypeHeader,"application/json");
+    QNetworkRequest req(QUrl("http://98.81.124.77:8086/login"));
+    req.setHeader(QNetworkRequest::ContentTypeHeader,"application/x-www-form-urlencoded");
 
-    QJsonObject obj{{"username",user},{"password",pass}};
-    m_reply = m_netMgr->post(req, QJsonDocument(obj).toJson());
+    // Prepare form-encoded data according to new API requirements
+    QUrlQuery formData;
+    formData.addQueryItem("username", user);      // email address
+    formData.addQueryItem("password", pass);      // password
+    formData.addQueryItem("grant_type", "password"); // must always be "password"
+    formData.addQueryItem("client_id", "");       // empty value
+    formData.addQueryItem("client_secret", "");   // empty value
+    formData.addQueryItem("scope", "");           // empty value
+
+    m_reply = m_netMgr->post(req, formData.toString(QUrl::FullyEncoded).toUtf8());
 
     connect(m_reply, &QNetworkReply::finished, this,&AuthDialog::onNetworkFinished);
     connect(m_reply, qOverload<QNetworkReply::NetworkError>(&QNetworkReply::errorOccurred),
@@ -111,13 +120,36 @@ void AuthDialog::onNetworkFinished()
     int code = m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     QByteArray data = m_reply->readAll();
     m_reply->deleteLater();
-    m_reply=nullptr;    if (code==200) {
+    m_reply=nullptr;
+    
+    if (code==200) {
         QJsonDocument doc=QJsonDocument::fromJson(data);
-        QString token=doc.object().value("access_token").toString();
+        QJsonObject response = doc.object();
+        
+        // Extract access token from new response format
+        QString token = response.value("access_token").toString();
+        QString tokenType = response.value("token_type").toString(); // "bearer"
+        
         if (!token.isEmpty()) {
             // Save the token to QSettings
             QSettings s("ViscoConnect","Auth");
             s.setValue("access_token", token);
+            s.setValue("token_type", tokenType);
+            
+            // Extract user information if available
+            QJsonObject user = response.value("user").toObject();
+            if (!user.isEmpty()) {
+                s.setValue("user_id", user.value("id").toInt());
+                s.setValue("user_name", user.value("name").toString());
+                s.setValue("user_email", user.value("email").toString());
+                s.setValue("user_role", user.value("role").toString());
+                s.setValue("account_created_date", user.value("account_created_date").toString());
+            }
+            
+            // Save additional session info
+            s.setValue("ip_address", response.value("ip_address").toString());
+            s.setValue("last_login", response.value("last_login").toString());
+            
             // Set expiration time (assume 1 hour if not provided by server)
             qint64 expiresAt = QDateTime::currentSecsSinceEpoch() + 3600; // 1 hour
             s.setValue("expires_at", expiresAt);
@@ -145,7 +177,7 @@ void AuthDialog::onNetworkError(QNetworkReply::NetworkError)
     m_loginBtn->setEnabled(true);
 }
 
-/* ---------- token helpers unchanged ---------- */
+/* ---------- token helpers ---------- */
 QString AuthDialog::getCurrentAuthToken()
 {
     QSettings s("ViscoConnect","Auth");
@@ -153,4 +185,15 @@ QString AuthDialog::getCurrentAuthToken()
     qint64 exp=s.value("expires_at").toLongLong();
     return (!tok.isEmpty() && QDateTime::currentSecsSinceEpoch()<exp)?tok:QString();
 }
+
+QString AuthDialog::getBearerToken()
+{
+    QString token = AuthDialog::getCurrentAuthToken();
+    if (token.isEmpty()) return QString();
+    
+    QSettings s("ViscoConnect","Auth");
+    QString tokenType = s.value("token_type", "bearer").toString();
+    return QString("%1 %2").arg(tokenType).arg(token);
+}
+
 void AuthDialog::clearCurrentAuthToken(){ QSettings("ViscoConnect","Auth").clear(); }

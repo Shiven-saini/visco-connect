@@ -232,7 +232,7 @@ void UserProfileWidget::fetchUserProfile()
 
     showLoadingState();
 
-    QNetworkRequest request(QUrl("http://3.82.200.187:8086/users/profile"));
+    QNetworkRequest request(QUrl("http://98.81.124.77:8086/users/profile"));
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Authorization", QString("Bearer %1").arg(token).toUtf8());
 
