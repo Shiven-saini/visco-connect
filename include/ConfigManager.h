@@ -31,6 +31,10 @@ public:
     int getEchoServerPort() const { return m_echoServerPort; }
     void setEchoServerPort(int port);
     
+    // API settings
+    QString getApiBaseUrl() const { return m_apiBaseUrl; }
+    void setApiBaseUrl(const QString& url);
+    
     int getNextExternalPort() const;
     
     // File paths
@@ -50,6 +54,7 @@ private:
     bool m_autoStartEnabled;
     bool m_echoServerEnabled;
     int m_echoServerPort;
+    QString m_apiBaseUrl;
     QString m_configFilePath;
     QString m_logFilePath;
 };

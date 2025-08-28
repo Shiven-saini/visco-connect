@@ -1,5 +1,8 @@
 {
     "autoStart": false,
+    "echoServerEnabled": true,
+    "echoServerPort": 7777,
+    "apiBaseUrl": "http://54.225.63.242:8086",
     "cameras": [
         {
             "id": "example-camera-1",

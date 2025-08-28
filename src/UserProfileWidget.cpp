@@ -1,4 +1,5 @@
 #include "UserProfileWidget.h"
+#include "ConfigManager.h"
 
 #include <QApplication>
 #include <QGroupBox>
@@ -232,7 +233,8 @@ void UserProfileWidget::fetchUserProfile()
 
     showLoadingState();
 
-    QNetworkRequest request(QUrl("http://54.225.63.242:8086/me/profile"));
+    QString apiBaseUrl = ConfigManager::instance().getApiBaseUrl();
+    QNetworkRequest request(QUrl(apiBaseUrl + "/me/profile"));
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Authorization", QString("Bearer %1").arg(token).toUtf8());
 

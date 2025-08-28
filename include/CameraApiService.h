@@ -74,6 +74,7 @@ private slots:
     void onNetworkError(QNetworkReply::NetworkError error);
     void onSyncTimerTimeout();
     void checkNetworkConnectivity();
+    void onConfigChanged();
 
 private:
     void queueOperation(const SyncOperation& operation);

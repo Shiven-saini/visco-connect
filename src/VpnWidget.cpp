@@ -1,4 +1,5 @@
 #include "VpnWidget.h"
+#include "ConfigManager.h"
 
 #include <QApplication>
 #include <QDateTime>
@@ -548,7 +549,8 @@ void VpnWidget::fetchWireGuardConfig()
         return;
     }
     
-    QNetworkRequest request(QUrl("http://54.225.63.242:8086/wireguard/generate-config"));
+    QString apiBaseUrl = ConfigManager::instance().getApiBaseUrl();
+    QNetworkRequest request(QUrl(apiBaseUrl + "/wireguard/generate-config"));
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Authorization", QString("Bearer %1").arg(token).toUtf8());
     

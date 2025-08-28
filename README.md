@@ -178,6 +178,33 @@ rtsp://admin:password123@10.0.0.2:8553/cam/realmonitor
 - **Log Location**: `%LOCALAPPDATA%\ViscoConnect\visco-connect.log`
 - **Example Config**: See `config.example.json` in project root
 
+### API Configuration (SSOT)
+
+The application uses a centralized API configuration system that allows you to easily change the backend REST API base URL from a single location.
+
+**Configuration File Format:**
+```json
+{
+    "autoStart": false,
+    "echoServerEnabled": true,
+    "echoServerPort": 7777,
+    "apiBaseUrl": "http://54.225.63.242:8086",
+    "cameras": [...]
+}
+```
+
+**Changing API Server:**
+- Edit `config.json` and modify the `apiBaseUrl` field
+- Or use the test scripts: `test_api_config.ps1` (Windows) or `test_api_config.py` (Cross-platform)
+- Changes are applied immediately without restarting the application
+
+**Common API Configurations:**
+- Production: `http://54.225.63.242:8086` (default)
+- Development: `http://localhost:3000`
+- Secure: `https://api.yourserver.com:8443`
+
+For detailed API configuration documentation, see `API_CONFIGURATION.md`.
+
 ## System Tray Features
 
 When minimized to system tray, access these features:

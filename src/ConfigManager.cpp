@@ -17,6 +17,7 @@ ConfigManager::ConfigManager()
     : m_autoStartEnabled(false)
     , m_echoServerEnabled(true)
     , m_echoServerPort(7777)
+    , m_apiBaseUrl("http://54.225.63.242:8086")
 {
     // Set up file paths
     QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
@@ -63,10 +64,12 @@ bool ConfigManager::loadConfig()
     }
     
     QJsonObject root = doc.object();
-      // Load settings
+    
+    // Load settings
     m_autoStartEnabled = root["autoStart"].toBool(false);
     m_echoServerEnabled = root["echoServerEnabled"].toBool(true);
     m_echoServerPort = root["echoServerPort"].toInt(7777);
+    m_apiBaseUrl = root["apiBaseUrl"].toString("http://54.225.63.242:8086");
     
     // Load cameras
     m_cameras.clear();
@@ -84,10 +87,12 @@ bool ConfigManager::loadConfig()
 bool ConfigManager::saveConfig()
 {
     QJsonObject root;
-      // Save settings
+    
+    // Save settings
     root["autoStart"] = m_autoStartEnabled;
     root["echoServerEnabled"] = m_echoServerEnabled;
     root["echoServerPort"] = m_echoServerPort;
+    root["apiBaseUrl"] = m_apiBaseUrl;
     
     // Save cameras
     QJsonArray camerasArray;
@@ -213,6 +218,22 @@ void ConfigManager::setEchoServerPort(int port)
     }
 }
 
+void ConfigManager::setApiBaseUrl(const QString& url)
+{
+    if (url.isEmpty()) {
+        LOG_WARNING("Invalid API base URL: empty string", "Config");
+        return;
+    }
+    
+    if (m_apiBaseUrl != url) {
+        m_apiBaseUrl = url;
+        saveConfig();
+        
+        LOG_INFO(QString("API base URL changed to %1").arg(url), "Config");
+        emit configChanged();
+    }
+}
+
 int ConfigManager::getNextExternalPort() const
 {
     int maxPort = 8550; // Start from 8551
@@ -242,6 +263,7 @@ void ConfigManager::createDefaultConfig()
     m_autoStartEnabled = false;
     m_echoServerEnabled = true;
     m_echoServerPort = 7777;
+    m_apiBaseUrl = "http://54.225.63.242:8086";
     
     LOG_INFO("Created default configuration", "Config");
 }

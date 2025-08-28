@@ -1,5 +1,6 @@
 #include "CameraApiService.h"
 #include "AuthDialog.h"
+#include "ConfigManager.h"
 #include "Logger.h"
 #include <QNetworkRequest>
 #include <QJsonDocument>
@@ -16,7 +17,7 @@ CameraApiService::CameraApiService(QObject *parent)
     , m_connectivityTimer(new QTimer(this))
     , m_isOnline(true) // Start as online, will be updated by connectivity check
     , m_isSyncing(false)
-    , m_baseUrl("http://54.225.63.242:8086")
+    , m_baseUrl(ConfigManager::instance().getApiBaseUrl())
 {
     // Setup sync timer for processing queued operations
     m_syncTimer->setSingleShot(false);
@@ -33,7 +34,10 @@ CameraApiService::CameraApiService(QObject *parent)
     // Initial connectivity check after a short delay to let the app initialize
     QTimer::singleShot(5000, this, &CameraApiService::checkNetworkConnectivity);
     
-    LOG_INFO("Camera API Service initialized - Connectivity checks every 2 minutes", "CameraApiService");
+    // Listen for config changes to update base URL
+    connect(&ConfigManager::instance(), &ConfigManager::configChanged, this, &CameraApiService::onConfigChanged);
+    
+    LOG_INFO(QString("Camera API Service initialized with base URL: %1 - Connectivity checks every 2 minutes").arg(m_baseUrl), "CameraApiService");
 }
 
 CameraApiService::~CameraApiService()
@@ -648,4 +652,16 @@ void CameraApiService::performCameraStatusUpdateWithFullData(const CameraConfig&
     
     LOG_INFO(QString("Performing camera full data status update on server: %1 -> %2 (Server Camera ID: %3)")
              .arg(camera.name()).arg(isActive ? "active" : "inactive").arg(camera.serverCameraId()), "CameraApiService");
+}
+
+void CameraApiService::onConfigChanged()
+{
+    QString newBaseUrl = ConfigManager::instance().getApiBaseUrl();
+    if (m_baseUrl != newBaseUrl) {
+        LOG_INFO(QString("API base URL updated from %1 to %2").arg(m_baseUrl, newBaseUrl), "CameraApiService");
+        m_baseUrl = newBaseUrl;
+        
+        // Trigger a connectivity check with the new URL
+        QTimer::singleShot(1000, this, &CameraApiService::checkNetworkConnectivity);
+    }
 }

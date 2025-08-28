@@ -1,4 +1,5 @@
 #include "AuthDialog.h"
+#include "ConfigManager.h"
 #include <QtWidgets>
 #include <QtNetwork>
 #include <QSettings>
@@ -95,7 +96,8 @@ void AuthDialog::performAuthentication(const QString &user,const QString &pass)
     showStatus("Authenticating…", Qt::darkGray);
     m_loginBtn->setEnabled(false);
 
-    QNetworkRequest req(QUrl("http://54.225.63.242:8086/login"));
+    QString apiBaseUrl = ConfigManager::instance().getApiBaseUrl();
+    QNetworkRequest req(QUrl(apiBaseUrl + "/login"));
     req.setHeader(QNetworkRequest::ContentTypeHeader,"application/x-www-form-urlencoded");
 
     // Prepare form-encoded data according to new API requirements
