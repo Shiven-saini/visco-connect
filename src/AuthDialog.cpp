@@ -95,7 +95,7 @@ void AuthDialog::performAuthentication(const QString &user,const QString &pass)
     showStatus("Authenticating…", Qt::darkGray);
     m_loginBtn->setEnabled(false);
 
-    QNetworkRequest req(QUrl("http://98.81.124.77:8086/login"));
+    QNetworkRequest req(QUrl("http://54.225.63.242:8086/login"));
     req.setHeader(QNetworkRequest::ContentTypeHeader,"application/x-www-form-urlencoded");
 
     // Prepare form-encoded data according to new API requirements

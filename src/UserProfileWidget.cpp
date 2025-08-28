@@ -232,7 +232,7 @@ void UserProfileWidget::fetchUserProfile()
 
     showLoadingState();
 
-    QNetworkRequest request(QUrl("http://98.81.124.77:8086/users/profile"));
+    QNetworkRequest request(QUrl("http://54.225.63.242:8086/me/profile"));
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Authorization", QString("Bearer %1").arg(token).toUtf8());
 
@@ -258,17 +258,20 @@ void UserProfileWidget::onProfileFetchFinished()
         QJsonDocument doc = QJsonDocument::fromJson(data);
         QJsonObject obj = doc.object();
 
-        QString firstName = obj.value("first_name").toString();
-        QString lastName = obj.value("last_name").toString();
-        QString email = obj.value("email").toString();
-        QString username = obj.value("username").toString();
-
-        // Combine first and last name, fallback to username if names are empty
+        // Parse the new response structure
+        QJsonObject userObj = obj.value("user").toObject();
+        QString organizationName = obj.value("organization_name").toString();
+        
+        QString name = userObj.value("name").toString();
+        QString email = userObj.value("email").toString();
+        QString role = userObj.value("role").toString();
+        
+        // Use name as full name, fallback to email if name is empty
         QString fullName;
-        if (!firstName.isEmpty() || !lastName.isEmpty()) {
-            fullName = QString("%1 %2").arg(firstName, lastName).trimmed();
-        } else if (!username.isEmpty()) {
-            fullName = username;
+        if (!name.isEmpty()) {
+            fullName = name;
+        } else if (!email.isEmpty()) {
+            fullName = email.split('@').first(); // Use email username part
         } else {
             fullName = tr("Unknown User");
         }
@@ -280,7 +283,8 @@ void UserProfileWidget::onProfileFetchFinished()
             m_avatarLabel->setText(fullName.at(0).toUpper());
         }
 
-        LOG_INFO(QString("User profile loaded: %1 (%2)").arg(fullName, email), "UserProfileWidget");
+        LOG_INFO(QString("User profile loaded: %1 (%2) - Organization: %3, Role: %4")
+                 .arg(fullName, email, organizationName, role), "UserProfileWidget");
 
     } else if (statusCode == 401) {
         updateProfileDisplay(tr("Authentication Failed"), tr("Please login again"));
@@ -321,12 +325,12 @@ void UserProfileWidget::updateProfileDisplay(const QString &fullName, const QStr
         QString("QLabel {"
         "    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
         "        stop:0 %1, stop:1 %2);"
-        "    border-radius: 30px;"
+        "    border-radius: 16px;"
         "    color: white;"
         "    font-weight: bold;"
-        "    font-size: 24px;"
-        "    border: 3px solid white;"
-        "    box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
+        "    font-size: 14px;"
+        "    border: 2px solid white;"
+        "    box-shadow: 0 1px 4px rgba(0,0,0,0.1);"
         "}").arg(avatarColor).arg(darkenColor(avatarColor))
     );
 }

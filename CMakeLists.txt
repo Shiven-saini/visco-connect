@@ -67,6 +67,7 @@ set(SOURCES
     src/MainWindow.cpp
     src/CameraConfig.cpp
     src/CameraManager.cpp
+    src/CameraApiService.cpp
     src/PortForwarder.cpp
     src/WindowsService.cpp
     src/SystemTrayManager.cpp
@@ -88,6 +89,7 @@ set(HEADERS
     include/MainWindow.h
     include/CameraConfig.h
     include/CameraManager.h
+    include/CameraApiService.h
     include/PortForwarder.h
     include/WindowsService.h
     include/SystemTrayManager.h

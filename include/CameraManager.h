@@ -6,6 +6,9 @@
 #include "CameraConfig.h"
 #include "PortForwarder.h"
 
+// Forward declaration
+class CameraApiService;
+
 class CameraManager : public QObject
 {
     Q_OBJECT
@@ -34,6 +37,9 @@ public:
     
     // Access to port forwarder for network interface management
     PortForwarder* getPortForwarder() const { return m_portForwarder; }
+    
+    // Access to API service
+    CameraApiService* getApiService() const { return m_apiService; }
 
 signals:
     void cameraStarted(const QString& id);
@@ -47,12 +53,19 @@ private slots:
     void handleForwardingError(const QString& cameraId, const QString& error);
     void handleConnectionEstablished(const QString& cameraId, const QString& clientAddress);
     void handleConnectionClosed(const QString& cameraId, const QString& clientAddress);
+    
+    // API service slots
+        void handleCameraCreated(const QString& localCameraId, const QString& serverCameraId, bool success, const QString& error);
+    void handleCameraUpdated(const QString& localCameraId, bool success, const QString& error);
+    void handleCameraDeleted(const QString& localCameraId, bool success, const QString& error);
+    void handleCameraStatusUpdated(const QString& localCameraId, bool success, const QString& error);
 
 private:
     void loadConfiguration();
     void saveConfiguration();
     
     PortForwarder* m_portForwarder;
+    CameraApiService* m_apiService;
     QHash<QString, CameraConfig> m_cameras;
     QHash<QString, bool> m_cameraStatus; // id -> running status
 };

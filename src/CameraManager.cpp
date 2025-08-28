@@ -1,12 +1,15 @@
 #include "CameraManager.h"
+#include "CameraApiService.h"
 #include "ConfigManager.h"
 #include "Logger.h"
 
 CameraManager::CameraManager(QObject *parent)
     : QObject(parent)
     , m_portForwarder(nullptr)
+    , m_apiService(nullptr)
 {
     m_portForwarder = new PortForwarder(this);
+    m_apiService = new CameraApiService(this);
     
     // Connect port forwarder signals
     connect(m_portForwarder, &PortForwarder::forwardingStarted,
@@ -19,6 +22,16 @@ CameraManager::CameraManager(QObject *parent)
             this, &CameraManager::handleConnectionEstablished);
     connect(m_portForwarder, &PortForwarder::connectionClosed,
             this, &CameraManager::handleConnectionClosed);
+    
+    // Connect API service signals
+    connect(m_apiService, &CameraApiService::cameraCreated,
+            this, &CameraManager::handleCameraCreated);
+    connect(m_apiService, &CameraApiService::cameraUpdated,
+            this, &CameraManager::handleCameraUpdated);
+    connect(m_apiService, &CameraApiService::cameraDeleted,
+            this, &CameraManager::handleCameraDeleted);
+    connect(m_apiService, &CameraApiService::cameraStatusUpdated,
+            this, &CameraManager::handleCameraStatusUpdated);
 }
 
 CameraManager::~CameraManager()
@@ -53,10 +66,21 @@ bool CameraManager::addCamera(const CameraConfig& camera)
         return false;
     }
     
+    // Add to local storage first (local storage is source of truth)
     ConfigManager::instance().addCamera(camera);
     loadConfiguration();
     
-    LOG_INFO(QString("Camera added: %1").arg(camera.name()), "CameraManager");
+    // Then sync to server
+    m_apiService->createCamera(camera);
+    
+    // If camera is enabled, start it automatically
+    if (camera.isEnabled()) {
+        startCamera(camera.id());
+        LOG_INFO(QString("Camera added and started: %1").arg(camera.name()), "CameraManager");
+    } else {
+        LOG_INFO(QString("Camera added (disabled): %1").arg(camera.name()), "CameraManager");
+    }
+    
     emit configurationChanged();
     return true;
 }
@@ -74,15 +98,19 @@ bool CameraManager::updateCamera(const QString& id, const CameraConfig& camera)
         stopCamera(id);
     }
     
+    // Update local storage first
     ConfigManager::instance().updateCamera(id, camera);
     loadConfiguration();
+    
+    // Sync to server
+    m_apiService->updateCamera(camera);
     
     // Restart camera if it was running and still enabled
     if (wasRunning && camera.isEnabled()) {
         startCamera(id);
     }
     
-    LOG_INFO(QString("Camera updated: %1").arg(camera.name()), "CameraManager");
+    LOG_INFO(QString("Camera updated locally: %1").arg(camera.name()), "CameraManager");
     emit configurationChanged();
     return true;
 }
@@ -95,12 +123,19 @@ bool CameraManager::removeCamera(const QString& id)
     }
     
     stopCamera(id);
-    QString cameraName = m_cameras[id].name();
     
+    CameraConfig camera = m_cameras[id];
+    QString cameraName = camera.name();
+    int serverId = camera.serverId();
+    
+    // Remove from local storage first
     ConfigManager::instance().removeCamera(id);
     loadConfiguration();
     
-    LOG_INFO(QString("Camera removed: %1").arg(cameraName), "CameraManager");
+    // Sync deletion to server
+    m_apiService->deleteCamera(id, camera.serverCameraId());
+    
+    LOG_INFO(QString("Camera removed locally: %1").arg(cameraName), "CameraManager");
     emit configurationChanged();
     return true;
 }
@@ -195,12 +230,36 @@ QList<CameraConfig> CameraManager::getAllCameras() const
 void CameraManager::handleForwardingStarted(const QString& cameraId, int externalPort)
 {
     m_cameraStatus[cameraId] = true;
+    
+    // Sync status change to server using full camera data
+    if (m_cameras.contains(cameraId)) {
+        const CameraConfig& camera = m_cameras[cameraId];
+        LOG_INFO(QString("Starting camera - Camera: %1, ServerCameraID: '%2'")
+                 .arg(camera.name()).arg(camera.serverCameraId()), "CameraManager");
+        // Use the new method that sends full camera data
+        m_apiService->updateCameraStatusWithFullData(camera, true);
+    } else {
+        LOG_WARNING(QString("Camera not found in local map for status update: %1").arg(cameraId), "CameraManager");
+    }
+    
     emit cameraStarted(cameraId);
 }
 
 void CameraManager::handleForwardingStopped(const QString& cameraId)
 {
     m_cameraStatus[cameraId] = false;
+    
+    // Sync status change to server using full camera data
+    if (m_cameras.contains(cameraId)) {
+        const CameraConfig& camera = m_cameras[cameraId];
+        LOG_INFO(QString("Stopping camera - Camera: %1, ServerCameraID: '%2'")
+                 .arg(camera.name()).arg(camera.serverCameraId()), "CameraManager");
+        // Use the new method that sends full camera data
+        m_apiService->updateCameraStatusWithFullData(camera, false);
+    } else {
+        LOG_WARNING(QString("Camera not found in local map for status update: %1").arg(cameraId), "CameraManager");
+    }
+    
     emit cameraStopped(cameraId);
 }
 
@@ -243,4 +302,66 @@ void CameraManager::loadConfiguration()
 void CameraManager::saveConfiguration()
 {
     // Configuration is automatically saved by ConfigManager
+}
+
+void CameraManager::handleCameraCreated(const QString& localCameraId, const QString& serverCameraId, bool success, const QString& error)
+{
+    LOG_INFO(QString("handleCameraCreated called - LocalID: %1, ServerCameraID: %2, Success: %3, Error: %4")
+             .arg(localCameraId).arg(serverCameraId).arg(success ? "true" : "false").arg(error), "CameraManager");
+             
+    if (success && !localCameraId.isEmpty() && !serverCameraId.isEmpty()) {
+        // Update the local camera with the server's camera ID
+        if (m_cameras.contains(localCameraId)) {
+            CameraConfig camera = m_cameras[localCameraId];
+            LOG_INFO(QString("Before update - Camera: %1, ServerCameraID: %2")
+                     .arg(camera.name()).arg(camera.serverCameraId()), "CameraManager");
+                     
+            camera.setServerCameraId(serverCameraId); // set server camera ID
+            
+            LOG_INFO(QString("After setServerCameraId - Camera: %1, ServerCameraID: %2")
+                     .arg(camera.name()).arg(camera.serverCameraId()), "CameraManager");
+            
+            // Update the camera in local storage
+            m_cameras[localCameraId] = camera;
+            ConfigManager::instance().updateCamera(localCameraId, camera);
+            
+            LOG_INFO(QString("Camera synchronized with server: %1 (Server Camera ID: %2)")
+                     .arg(camera.name()).arg(serverCameraId), "CameraManager");
+        } else {
+            LOG_WARNING(QString("Camera not found in local map: %1").arg(localCameraId), "CameraManager");
+        }
+    } else {
+        LOG_WARNING(QString("Failed to create camera on server: %1 - %2")
+                   .arg(localCameraId, error), "CameraManager");
+    }
+}
+
+void CameraManager::handleCameraUpdated(const QString& localCameraId, bool success, const QString& error)
+{
+    if (success) {
+        LOG_INFO(QString("Camera update synchronized with server: %1").arg(localCameraId), "CameraManager");
+    } else {
+        LOG_WARNING(QString("Failed to update camera on server: %1 - %2")
+                   .arg(localCameraId, error), "CameraManager");
+    }
+}
+
+void CameraManager::handleCameraDeleted(const QString& localCameraId, bool success, const QString& error)
+{
+    if (success) {
+        LOG_INFO(QString("Camera deletion synchronized with server: %1").arg(localCameraId), "CameraManager");
+    } else {
+        LOG_WARNING(QString("Failed to delete camera on server: %1 - %2")
+                   .arg(localCameraId, error), "CameraManager");
+    }
+}
+
+void CameraManager::handleCameraStatusUpdated(const QString& localCameraId, bool success, const QString& error)
+{
+    if (success) {
+        LOG_INFO(QString("Camera status synchronized with server: %1").arg(localCameraId), "CameraManager");
+    } else {
+        LOG_WARNING(QString("Failed to update camera status on server: %1 - %2")
+                   .arg(localCameraId, error), "CameraManager");
+    }
 }
