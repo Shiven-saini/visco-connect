@@ -1,5 +1,6 @@
 #include "AuthDialog.h"
 #include "ConfigManager.h"
+#include "Logger.h"
 #include <QtWidgets>
 #include <QtNetwork>
 #include <QSettings>
@@ -157,6 +158,17 @@ void AuthDialog::onNetworkFinished()
             s.setValue("expires_at", expiresAt);
             
             showStatus("Login successful.", Qt::darkGreen);
+            
+            // Emit signal for successful login
+            emit loginSuccessful();
+            
+            // Switch ConfigManager to this user's configuration
+            QString userEmail = user.value("email").toString();
+            if (!userEmail.isEmpty()) {
+                ConfigManager::instance().switchToUser(userEmail);
+                LOG_INFO(QString("Switched to user configuration for: %1").arg(userEmail), "AuthDialog");
+            }
+            
             QTimer::singleShot(700, this, &QDialog::accept);
             return;
         }

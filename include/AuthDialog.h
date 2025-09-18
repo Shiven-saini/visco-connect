@@ -22,6 +22,9 @@ public:
     static QString getBearerToken();
     static void clearCurrentAuthToken();
 
+signals:
+    void loginSuccessful();
+
 private slots:
     void onLoginClicked();
     void onNetworkFinished();

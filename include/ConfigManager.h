@@ -21,6 +21,11 @@ public:
     void removeCamera(const QString& id);
     QList<CameraConfig> getAllCameras() const;
     CameraConfig getCamera(const QString& id) const;
+    
+    // User-specific configuration management
+    void switchToUser(const QString& userEmail);
+    void clearCurrentUserCameras();
+    QString getCurrentUserEmail() const { return m_currentUserEmail; }
       // Settings
     bool isAutoStartEnabled() const { return m_autoStartEnabled; }
     void setAutoStartEnabled(bool enabled);
@@ -43,6 +48,7 @@ public:
 
 signals:
     void configChanged();
+    void userSwitched(const QString& userEmail);
 
 private:
     ConfigManager();
@@ -50,6 +56,9 @@ private:
     
     void createDefaultConfig();
     void updateWindowsAutoStart();
+    QString getUserConfigFilePath(const QString& userEmail) const;
+    void loadUserSpecificConfig(const QString& userEmail);
+    void saveUserSpecificConfig(const QString& userEmail);
       QList<CameraConfig> m_cameras;
     bool m_autoStartEnabled;
     bool m_echoServerEnabled;
@@ -57,6 +66,7 @@ private:
     QString m_apiBaseUrl;
     QString m_configFilePath;
     QString m_logFilePath;
+    QString m_currentUserEmail; // Track current user for user-specific configs
 };
 
 #endif // CONFIGMANAGER_H

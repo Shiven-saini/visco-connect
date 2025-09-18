@@ -33,20 +33,26 @@ public:
     bool isConnected() const;
     void connectToNetwork();
     void disconnectFromNetwork();
+    void disconnectAndCleanupOnLogout();  // New method for logout disconnect + cleanup
+    WireGuardManager* getWireGuardManager() const;
+    
+    // Always-connected functionality  
+    void onLoginSuccessful();  // Called when user logs in
 
 signals:
     void statusChanged(const QString& status);
     void logMessage(const QString& message);
 
 private slots:
-    // User-initiated actions
+    // Legacy manual connection slots (kept for compatibility)
     void onConnectClicked();
     void onDisconnectClicked();
     void onPingTestClicked();
-
+    
     // Network slots for config fetching
     void onConfigFetchFinished();
     void onConfigFetchError(QNetworkReply::NetworkError error);
+    void onAutoConnectConfigReceived();
 
     // Slots for QProcess (Ping)
     void onPingFinished(int exitCode, QProcess::ExitStatus exitStatus);
@@ -72,12 +78,14 @@ private:    // UI Setup
     void updateUI();
     QString getStatusText(WireGuardManager::ConnectionStatus status);
     QPixmap getStatusIcon(WireGuardManager::ConnectionStatus status);
-      // Config management
+    // Config management
     void fetchWireGuardConfig();
+    void fetchWireGuardConfigForAutoConnect();
     void saveWireGuardConfig(const QString& configContent);
     QString getSavedWireGuardConfig();
     QString getWireGuardConfigPath();
     void validateAndConnect();
+    void autoConnect();
     
     // Core components
     WireGuardManager* m_wireGuardManager;
@@ -85,24 +93,28 @@ private:    // UI Setup
     QProcess* m_pingProcess;
     QNetworkAccessManager* m_networkManager;
     QNetworkReply* m_configReply;    // UI Components (pointers managed by Qt's parent-child system)
-    QVBoxLayout* m_mainLayout;    QGroupBox* m_connectionGroup;
+    QVBoxLayout* m_mainLayout;
+    QGroupBox* m_connectionGroup;
+    QGroupBox* m_statusGroup;
+    QGroupBox* m_pingTestGroup;
     QPushButton* m_connectButton;
     QPushButton* m_disconnectButton;
+    QPushButton* m_pingTestButton;
+    QProgressBar* m_connectionProgress;
     QLabel* m_connectionStatusLabel;
     QLabel* m_connectionIconLabel;
-    QProgressBar* m_connectionProgress;
-    
-    QGroupBox* m_statusGroup;
     QLabel* m_currentConfigLabel;
     QLabel* m_uptimeLabel;
     QLabel* m_transferLabel;
-      QGroupBox* m_pingTestGroup;
-    QPushButton* m_pingTestButton;
     QLabel* m_pingStatusLabel;
+    QLabel* m_autoModeLabel;
     
     // State tracking
     QString m_loadedConfigPath;
     QDateTime m_connectionStartTime;
+    bool m_autoConnectMode;
+    bool m_autoConnectInProgress;
+    QTimer* m_reconnectTimer;
 };
 
 #endif // VPNWIDGET_H

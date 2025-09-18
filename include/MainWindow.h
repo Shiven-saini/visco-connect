@@ -40,6 +40,8 @@ public:    explicit MainWindow(QWidget *parent = nullptr);
     void appendLog(const QString& message);
     CameraManager* getCameraManager() const { return m_cameraManager; }
     void setForceQuit(bool forceQuit) { m_forceQuit = forceQuit; }
+    void onUserLoginSuccessful();  // Handle successful login for auto-connect
+    void disconnectVpnOnLogout();  // Handle VPN disconnect and cleanup on logout
 
 protected:
     void closeEvent(QCloseEvent *event) override;

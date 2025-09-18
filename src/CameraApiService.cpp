@@ -10,7 +10,7 @@
 #include <QUrl>
 #include <QUrlQuery>
 
-CameraApiService::CameraApiService(QObject *parent)
+CameraApiService::CameraApiService(WireGuardManager* wireGuardManager, QObject *parent)
     : QObject(parent)
     , m_networkManager(new QNetworkAccessManager(this))
     , m_syncTimer(new QTimer(this))
@@ -18,6 +18,7 @@ CameraApiService::CameraApiService(QObject *parent)
     , m_isOnline(true) // Start as online, will be updated by connectivity check
     , m_isSyncing(false)
     , m_baseUrl(ConfigManager::instance().getApiBaseUrl())
+    , m_wireGuardManager(wireGuardManager)
 {
     // Setup sync timer for processing queued operations
     m_syncTimer->setSingleShot(false);
@@ -119,12 +120,12 @@ void CameraApiService::deleteCamera(const QString& localCameraId, const QString&
 {
     QString token = AuthDialog::getCurrentAuthToken();
     if (token.isEmpty()) {
-        queueOperation(SyncOperation(SyncOperationType::DELETE, localCameraId));
+        queueOperation(SyncOperation(SyncOperationType::DELETE_CAMERA, localCameraId));
         return;
     }
     
     if (!m_isOnline || serverCameraId.isEmpty()) {
-        queueOperation(SyncOperation(SyncOperationType::DELETE, localCameraId));
+        queueOperation(SyncOperation(SyncOperationType::DELETE_CAMERA, localCameraId));
         return;
     }
     
@@ -395,7 +396,7 @@ void CameraApiService::processNextSyncOperation()
             LOG_INFO(QString("Syncing camera update: %1").arg(operation.camera.name()), "CameraApiService");
             updateCamera(operation.camera);
             break;
-        case SyncOperationType::DELETE:
+        case SyncOperationType::DELETE_CAMERA:
             LOG_INFO(QString("Syncing camera deletion: %1").arg(operation.localCameraId), "CameraApiService");
             // For delete operations, we need the server ID from the stored camera
             if (!operation.serverCameraId.isEmpty()) {
@@ -494,14 +495,32 @@ QJsonObject CameraApiService::cameraToApiJson(const CameraConfig& camera) const
 {
     QJsonObject json;
     json["name"] = camera.name();
-    json["c_ip"] = camera.ipAddress();
+    
+    // Send local camera details for reference
+    json["camera_ip"] = camera.ipAddress();
+    json["camera_port"] = camera.port();
+    
+    // Send WireGuard IP and external port for KVS streaming
+    json["wireguard_ip"] = getWireGuardIP();
+    json["external_port"] = camera.externalPort();
+    
+    // Backward compatibility fields
+    json["c_ip"] = camera.ipAddress();  // Keep for old API compatibility
+    json["port"] = camera.externalPort();  // External port for KVS streaming
+    
     json["status"] = getStatusString(camera.isEnabled());
-    json["port"] = camera.externalPort();
     json["stream_url"] = constructRtspUrl(camera);
     json["username"] = camera.username();
     json["password"] = camera.password();
     
     return json;
+}
+
+QString CameraApiService::getWireGuardIP() const
+{
+    // TODO: Implement WireGuard IP retrieval properly
+    // For now, return a placeholder
+    return "10.0.0.2"; // Placeholder WireGuard IP
 }
 
 QString CameraApiService::getStatusString(bool isEnabled) const

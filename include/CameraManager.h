@@ -6,15 +6,16 @@
 #include "CameraConfig.h"
 #include "PortForwarder.h"
 
-// Forward declaration
+// Forward declarations
 class CameraApiService;
+class WireGuardManager;
 
 class CameraManager : public QObject
 {
     Q_OBJECT
 
 public:
-    explicit CameraManager(QObject *parent = nullptr);
+    explicit CameraManager(WireGuardManager* wireGuardManager, QObject *parent = nullptr);
     ~CameraManager();
     
     void initialize();
@@ -59,6 +60,9 @@ private slots:
     void handleCameraUpdated(const QString& localCameraId, bool success, const QString& error);
     void handleCameraDeleted(const QString& localCameraId, bool success, const QString& error);
     void handleCameraStatusUpdated(const QString& localCameraId, bool success, const QString& error);
+    
+    // User switching slot
+    void handleUserSwitched(const QString& userEmail);
 
 private:
     void loadConfiguration();

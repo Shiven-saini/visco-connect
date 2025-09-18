@@ -28,6 +28,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QRegularExpression>
+#include <QEventLoop>
 #include "AuthDialog.h"
 #include "MainWindow.h"
 #include "Logger.h"
@@ -39,20 +40,21 @@ VpnWidget::VpnWidget(QWidget *parent)
     , m_pingProcess(nullptr)
     , m_networkManager(new QNetworkAccessManager(this))
     , m_configReply(nullptr)
+    , m_autoConnectMode(true)
+    , m_autoConnectInProgress(false)
+    , m_reconnectTimer(new QTimer(this))
 {
     setupUI();
     connectSignals();
     
     m_statusUpdateTimer->setInterval(1000); // 1-second updates
-    m_statusUpdateTimer->start();    // Try to load saved config automatically
-    QString savedConfig = getSavedWireGuardConfig();
-    if (!savedConfig.isEmpty()) {
-        QString configPath = getWireGuardConfigPath();
-        QFileInfo fileInfo(configPath);
-        m_loadedConfigPath = configPath;
-        m_currentConfigLabel->setText(tr("Configuration: Ready for secure connection"));
-        emit logMessage(QString("Auto-loaded WireGuard config: %1").arg(configPath));
-    }
+    m_statusUpdateTimer->start();
+    
+    // Setup auto-reconnection timer
+    m_reconnectTimer->setSingleShot(true);
+    
+    // Auto-connect: Simply trigger the existing connect functionality after app is fully loaded
+    QTimer::singleShot(5000, this, &VpnWidget::onConnectClicked);
     
     updateUI();
 }
@@ -86,6 +88,11 @@ bool VpnWidget::isConnected() const
     return m_wireGuardManager->getConnectionStatus() == WireGuardManager::Connected;
 }
 
+WireGuardManager* VpnWidget::getWireGuardManager() const
+{
+    return m_wireGuardManager;
+}
+
 void VpnWidget::connectToNetwork()
 {
     if (getConnectionStatus() == WireGuardManager::Disconnected) {
@@ -99,6 +106,46 @@ void VpnWidget::disconnectFromNetwork()
         getConnectionStatus() == WireGuardManager::Connecting) {
         onDisconnectClicked();
     }
+}
+
+void VpnWidget::disconnectAndCleanupOnLogout()
+{
+    // First disconnect from VPN if connected
+    if (getConnectionStatus() == WireGuardManager::Connected || 
+        getConnectionStatus() == WireGuardManager::Connecting) {
+        
+        LOG_INFO("Disconnecting VPN connection for user logout", "VpnWidget");
+        m_wireGuardManager->disconnectTunnel();
+        
+        // Wait a bit for disconnect to complete
+        QTimer disconnectWaitTimer;
+        disconnectWaitTimer.setSingleShot(true);
+        QEventLoop loop;
+        connect(&disconnectWaitTimer, &QTimer::timeout, &loop, &QEventLoop::quit);
+        disconnectWaitTimer.start(2000); // Wait up to 2 seconds
+        loop.exec();
+    }
+    
+    // Clean up WireGuard configuration file
+    QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir dir(appDataPath);
+    QString configPath = dir.filePath("wireguard_server.conf");
+    
+    if (QFile::exists(configPath)) {
+        if (QFile::remove(configPath)) {
+            LOG_INFO("Deleted VPN configuration file on logout: " + configPath, "VpnWidget");
+        } else {
+            LOG_WARNING("Failed to delete VPN configuration file on logout: " + configPath, "VpnWidget");
+        }
+    }
+    
+    // Clear the loaded config path to force re-fetch on next login
+    m_loadedConfigPath.clear();
+    
+    // Clear any stored WireGuard settings
+    QSettings settings("ViscoConnect", "WireGuard");
+    settings.clear();
+    LOG_INFO("Cleared VPN settings on logout", "VpnWidget");
 }
 
 void VpnWidget::setupUI()
@@ -116,45 +163,14 @@ void VpnWidget::setupUI()
 
 void VpnWidget::setupConnectionGroup()
 {
-    m_connectionGroup = new QGroupBox(tr("Remote Secure Access"));
+    m_connectionGroup = new QGroupBox(tr("Secure Network Status"));
     
+    // Create buttons but hide them (keep for functionality, hide for UI)
     m_connectButton = new QPushButton(tr("Join Network"));
-    m_connectButton->setMinimumHeight(32);
-    m_connectButton->setStyleSheet(
-        "QPushButton {"
-        "    background-color: #4CAF50;"
-        "    color: white;"
-        "    font-weight: bold;"
-        "    border: none;"
-        "    border-radius: 6px;"
-        "    font-size: 12px;"
-        "}"
-        "QPushButton:hover {"
-        "    background-color: #45a049;"
-        "}"
-        "QPushButton:disabled {"
-        "    background-color: #cccccc;"
-        "    color: #666666;"
-        "}"
-    );
-      m_disconnectButton = new QPushButton(tr("Leave Network"));
-    m_disconnectButton->setMinimumHeight(32);
-    m_disconnectButton->setStyleSheet(
-        "QPushButton {"
-        "    background-color: #f44336;"
-        "    color: white;"
-        "    font-weight: bold;"
-        "    border: none;"
-        "    border-radius: 6px;"
-        "    font-size: 12px;"
-        "}"
-        "QPushButton:hover {"
-        "    background-color: #da190b;"
-        "}"
-        "QPushButton:disabled {"
-        "    background-color: #cccccc;"
-        "    color: #666666;"
-        "}"    );
+    m_connectButton->setVisible(false); // Hide the button
+    
+    m_disconnectButton = new QPushButton(tr("Leave Network"));
+    m_disconnectButton->setVisible(false); // Hide the button
     
     // Status indicator with icon and text
     QWidget* statusWidget = new QWidget();
@@ -162,10 +178,10 @@ void VpnWidget::setupConnectionGroup()
     statusLayout->setContentsMargins(0, 0, 0, 0);
     
     m_connectionIconLabel = new QLabel();
-    m_connectionIconLabel->setFixedSize(16, 16);
+    m_connectionIconLabel->setFixedSize(24, 24);
     
-    m_connectionStatusLabel = new QLabel(tr("Disconnected"));
-    m_connectionStatusLabel->setStyleSheet("font-weight: bold; font-size: 12px;");
+    m_connectionStatusLabel = new QLabel(tr("Initializing secure connection..."));
+    m_connectionStatusLabel->setStyleSheet("font-weight: bold; font-size: 14px; color: #495057;");
     
     statusLayout->addWidget(m_connectionIconLabel);
     statusLayout->addWidget(m_connectionStatusLabel);
@@ -173,7 +189,7 @@ void VpnWidget::setupConnectionGroup()
     
     m_connectionProgress = new QProgressBar();
     m_connectionProgress->setRange(0, 0); // Indeterminate
-    m_connectionProgress->setVisible(false);
+    m_connectionProgress->setVisible(true); // Show progress initially
     m_connectionProgress->setMaximumHeight(20);
     m_connectionProgress->setStyleSheet(
         "QProgressBar {"
@@ -186,16 +202,18 @@ void VpnWidget::setupConnectionGroup()
         "    background-color: #4CAF50;"
         "    border-radius: 3px;"
         "}"
-    );      QVBoxLayout* mainLayout = new QVBoxLayout(m_connectionGroup);
-    mainLayout->setSpacing(10);
-      // Main button layout
-    QHBoxLayout* buttonLayout = new QHBoxLayout();
-    buttonLayout->addWidget(m_connectButton);
-    buttonLayout->addWidget(m_disconnectButton);
+    );
     
-    mainLayout->addLayout(buttonLayout);
+    // Info label for always-connected mode
+    QLabel* infoLabel = new QLabel(tr("Your connection is managed automatically for optimal security."));
+    infoLabel->setStyleSheet("color: #6c757d; font-size: 11px; font-style: italic;");
+    infoLabel->setWordWrap(true);
+    
+    QVBoxLayout* mainLayout = new QVBoxLayout(m_connectionGroup);
+    mainLayout->setSpacing(10);
     mainLayout->addWidget(statusWidget);
     mainLayout->addWidget(m_connectionProgress);
+    mainLayout->addWidget(infoLabel);
     
     m_mainLayout->addWidget(m_connectionGroup);
 }
@@ -289,7 +307,8 @@ void VpnWidget::setupPingTestGroup()
 }
 
 void VpnWidget::connectSignals()
-{    // User actions
+{    
+    // User actions
     connect(m_connectButton, &QPushButton::clicked, this, &VpnWidget::onConnectClicked);
     connect(m_disconnectButton, &QPushButton::clicked, this, &VpnWidget::onDisconnectClicked);
     connect(m_pingTestButton, &QPushButton::clicked, this, &VpnWidget::onPingTestClicked);
@@ -307,7 +326,7 @@ void VpnWidget::connectSignals()
         connect(m_pingProcess, &QProcess::errorOccurred, this, &VpnWidget::onPingError);
     }
     
-    // Timer signal
+    // Timer signals
     connect(m_statusUpdateTimer, &QTimer::timeout, this, &VpnWidget::updateConnectionStatus);
 }
 
@@ -623,6 +642,13 @@ void VpnWidget::onConfigFetchError(QNetworkReply::NetworkError error)
     emit logMessage(QString("Network error fetching config: %1").arg(errorString));
 }
 
+void VpnWidget::onAutoConnectConfigReceived()
+{
+    // This method is called by Qt's MOC system but we handle config reception
+    // in onConfigFetchFinished() for both manual and auto-connect modes
+    emit logMessage("Auto-connect config received signal triggered");
+}
+
 void VpnWidget::saveWireGuardConfig(const QString& configContent)
 {
     // Save to QSettings for persistence
@@ -735,4 +761,10 @@ void VpnWidget::validateAndConnect()
             }
         });
     }
+}
+
+void VpnWidget::onLoginSuccessful()
+{
+    // Simple auto-connect on login: just trigger connect after a small delay
+    QTimer::singleShot(2000, this, &VpnWidget::onConnectClicked);
 }

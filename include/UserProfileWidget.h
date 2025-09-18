@@ -25,6 +25,8 @@ private slots:
     void onLogoutClicked();
     void onProfileFetchFinished();
     void onProfileFetchError(QNetworkReply::NetworkError error);
+    void onLogoutFinished();
+    void onLogoutError(QNetworkReply::NetworkError error);
 
 private:
     void setupUI();
@@ -32,6 +34,8 @@ private:
     void updateProfileDisplay(const QString &fullName, const QString &email);
     void showLoadingState();
     void connectSignals();
+    void performLogoutApiCall();
+    void completeLogoutProcess();
     
     // Helper methods for avatar generation
     QString generateInitials(const QString &fullName);
@@ -48,6 +52,7 @@ private:
     // Network
     QNetworkAccessManager *m_networkManager;
     QNetworkReply *m_profileReply;
+    QNetworkReply *m_logoutReply;
 
     // User data
     QString m_currentFullName;

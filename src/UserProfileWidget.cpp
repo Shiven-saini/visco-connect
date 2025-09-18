@@ -30,6 +30,7 @@ UserProfileWidget::UserProfileWidget(QWidget *parent)
     , m_avatarLabel(nullptr)
     , m_networkManager(new QNetworkAccessManager(this))
     , m_profileReply(nullptr)
+    , m_logoutReply(nullptr)
 {
     setupUI();
     connectSignals();
@@ -43,6 +44,10 @@ UserProfileWidget::~UserProfileWidget()
     if (m_profileReply) {
         m_profileReply->abort();
         m_profileReply->deleteLater();
+    }
+    if (m_logoutReply) {
+        m_logoutReply->abort();
+        m_logoutReply->deleteLater();
     }
 }
 
@@ -408,56 +413,126 @@ void UserProfileWidget::onLogoutClicked()
         QMessageBox::No);
 
     if (reply == QMessageBox::Yes) {
-        LOG_INFO("User confirmed logout, preparing to close application", "UserProfileWidget");
-
-        // Find VPN widget and disconnect if needed
-        QWidget *parentWidget = this->parentWidget();
-        while (parentWidget) {
-            if (MainWindow *mainWindow = qobject_cast<MainWindow*>(parentWidget)) {
-                // Access the VPN widget through the main window if needed
-                // For now, we'll just let the main window handle VPN disconnection
-                break;
-            }
-            parentWidget = parentWidget->parentWidget();
-        }
-
-        // Clear the authentication token
-        AuthDialog::clearCurrentAuthToken();
-
-        // Delete the WireGuard config file
-        QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-        QDir dir(appDataPath);
-        QString configPath = dir.filePath("wireguard_server.conf");
+        LOG_INFO("User confirmed logout, initiating logout process", "UserProfileWidget");
         
-        if (QFile::exists(configPath)) {
-            if (QFile::remove(configPath)) {
-                LOG_INFO("Deleted WireGuard config file: " + configPath, "UserProfileWidget");
-            } else {
-                LOG_WARNING("Failed to delete WireGuard config file: " + configPath, "UserProfileWidget");
-            }
-        }        // Clear saved WireGuard config from QSettings
-        QSettings settings("ViscoConnect", "WireGuard");
-        settings.clear();
-        LOG_INFO("Cleared WireGuard settings", "UserProfileWidget");
+        // Disable logout button to prevent multiple clicks
+        m_logoutButton->setEnabled(false);
+        m_logoutButton->setText(tr("Logging out..."));
         
-        LOG_INFO("User logged out successfully, restarting application for re-authentication", "UserProfileWidget");
-
-        // Get the current application executable path and arguments
-        QString program = QApplication::applicationFilePath();
-        QStringList arguments = QApplication::arguments();
-        arguments.removeFirst(); // Remove the executable name from arguments
-
-        // Find the main window and set force quit flag before closing
-        MainWindow* mainWindow = qobject_cast<MainWindow*>(window());
-        if (mainWindow) {
-            mainWindow->setForceQuit(true);
-            mainWindow->close();
-        }
-
-        // Restart the application to show login dialog
-        QProcess::startDetached(program, arguments);
-        
-        // Exit current instance
-        QApplication::quit();
+        // Call logout API first
+        performLogoutApiCall();
     }
+}
+
+void UserProfileWidget::performLogoutApiCall()
+{
+    if (m_logoutReply) {
+        m_logoutReply->abort();
+        m_logoutReply->deleteLater();
+    }
+
+    QString token = AuthDialog::getCurrentAuthToken();
+    if (token.isEmpty()) {
+        LOG_WARNING("No authentication token found, proceeding with local logout only", "UserProfileWidget");
+        completeLogoutProcess();
+        return;
+    }
+
+    QString apiBaseUrl = ConfigManager::instance().getApiBaseUrl();
+    QNetworkRequest request(QUrl(apiBaseUrl + "/logout"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setRawHeader("Authorization", QString("Bearer %1").arg(token).toUtf8());
+
+    LOG_INFO("Calling logout API to revoke server-side session and WireGuard IP", "UserProfileWidget");
+    
+    m_logoutReply = m_networkManager->post(request, QByteArray());
+
+    connect(m_logoutReply, &QNetworkReply::finished, this, &UserProfileWidget::onLogoutFinished);
+    connect(m_logoutReply, QOverload<QNetworkReply::NetworkError>::of(&QNetworkReply::errorOccurred),
+            this, &UserProfileWidget::onLogoutError);
+}
+
+void UserProfileWidget::onLogoutFinished()
+{
+    if (!m_logoutReply) return;
+
+    int statusCode = m_logoutReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    QByteArray data = m_logoutReply->readAll();
+    m_logoutReply->deleteLater();
+    m_logoutReply = nullptr;
+
+    if (statusCode == 200) {
+        LOG_INFO("Logout API call successful - server session and WireGuard IP revoked", "UserProfileWidget");
+        
+        // Parse response to check WireGuard status
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        QJsonObject obj = doc.object();
+        QString wireguardStatus = obj.value("wireguard_status").toString();
+        if (!wireguardStatus.isEmpty()) {
+            LOG_INFO(QString("WireGuard status: %1").arg(wireguardStatus), "UserProfileWidget");
+        }
+    } else {
+        LOG_WARNING(QString("Logout API call failed with status code: %1").arg(statusCode), "UserProfileWidget");
+        // Continue with logout process even if API call failed
+    }
+    
+    // Complete the logout process
+    completeLogoutProcess();
+}
+
+void UserProfileWidget::onLogoutError(QNetworkReply::NetworkError error)
+{
+    if (!m_logoutReply) return;
+    
+    QString errorString = m_logoutReply->errorString();
+    m_logoutReply->deleteLater();
+    m_logoutReply = nullptr;
+    
+    LOG_WARNING(QString("Logout API call error: %1").arg(errorString), "UserProfileWidget");
+    
+    // Continue with logout process even if API call failed
+    completeLogoutProcess();
+}
+
+void UserProfileWidget::completeLogoutProcess()
+{
+    LOG_INFO("Completing logout process - clearing local data and restarting application", "UserProfileWidget");
+    
+    // Find MainWindow and disconnect VPN if needed
+    QWidget *parentWidget = this->parentWidget();
+    while (parentWidget) {
+        if (MainWindow *mainWindow = qobject_cast<MainWindow*>(parentWidget)) {
+            LOG_INFO("Disconnecting VPN and cleaning up configuration for logout", "UserProfileWidget");
+            mainWindow->disconnectVpnOnLogout();
+            break;
+        }
+        parentWidget = parentWidget->parentWidget();
+    }
+
+    // Clear the authentication token
+    AuthDialog::clearCurrentAuthToken();
+    
+    // Switch ConfigManager to no user (clears current user's cameras from memory)
+    ConfigManager::instance().switchToUser("");
+    LOG_INFO("Cleared user-specific configuration from memory", "UserProfileWidget");
+
+    LOG_INFO("User logged out successfully, restarting application for re-authentication", "UserProfileWidget");
+
+    // Get the current application executable path and arguments
+    QString program = QApplication::applicationFilePath();
+    QStringList arguments = QApplication::arguments();
+    arguments.removeFirst(); // Remove the executable name from arguments
+
+    // Find the main window and set force quit flag before closing
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(window());
+    if (mainWindow) {
+        mainWindow->setForceQuit(true);
+        mainWindow->close();
+    }
+
+    // Restart the application to show login dialog
+    QProcess::startDetached(program, arguments);
+    
+    // Exit current instance
+    QApplication::quit();
 }

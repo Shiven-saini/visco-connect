@@ -978,9 +978,14 @@ MainWindow::MainWindow(QWidget *parent)
     
     // Set a reasonable default size with more height
     resize(1200, 900);
-      // Initialize camera manager
+    
+    // Create VpnWidget first as other components depend on its WireGuardManager
+    LOG_INFO("Creating VpnWidget...", "MainWindow");
+    m_vpnWidget = new VpnWidget;
+    
+    // Initialize camera manager with WireGuardManager
     LOG_INFO("Creating CameraManager...", "MainWindow");
-    m_cameraManager = new CameraManager(this);
+    m_cameraManager = new CameraManager(m_vpnWidget->getWireGuardManager(), this);
     
     // Initialize network interface manager
     LOG_INFO("Creating NetworkInterfaceManager...", "MainWindow");
@@ -1772,7 +1777,7 @@ void MainWindow::createCentralWidget()
     QVBoxLayout* rightLayout = new QVBoxLayout(rightWidget);
     rightLayout->setSpacing(12);
     
-    m_vpnWidget = new VpnWidget;
+    // VpnWidget already created in initialize()
     m_vpnWidget->setMaximumWidth(380);
     m_vpnWidget->setMinimumWidth(320);
     
@@ -2168,6 +2173,22 @@ void MainWindow::onPingFinished(int exitCode, QProcess::ExitStatus exitStatus)
     }
     
     m_currentTestingCameraId.clear();
+}
+
+void MainWindow::onUserLoginSuccessful()
+{
+    if (m_vpnWidget) {
+        LOG_INFO("User login successful - triggering VPN auto-connect", "MainWindow");
+        m_vpnWidget->onLoginSuccessful();
+    }
+}
+
+void MainWindow::disconnectVpnOnLogout()
+{
+    if (m_vpnWidget) {
+        LOG_INFO("User logout - disconnecting VPN and cleaning up configuration", "MainWindow");
+        m_vpnWidget->disconnectAndCleanupOnLogout();
+    }
 }
 
 #include "MainWindow.moc" // Include MOC file for Q_OBJECT in CameraConfigDialog

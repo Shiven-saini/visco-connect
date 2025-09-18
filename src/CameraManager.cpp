@@ -3,13 +3,13 @@
 #include "ConfigManager.h"
 #include "Logger.h"
 
-CameraManager::CameraManager(QObject *parent)
+CameraManager::CameraManager(WireGuardManager* wireGuardManager, QObject *parent)
     : QObject(parent)
     , m_portForwarder(nullptr)
     , m_apiService(nullptr)
 {
     m_portForwarder = new PortForwarder(this);
-    m_apiService = new CameraApiService(this);
+    m_apiService = new CameraApiService(wireGuardManager, this);
     
     // Connect port forwarder signals
     connect(m_portForwarder, &PortForwarder::forwardingStarted,
@@ -32,6 +32,10 @@ CameraManager::CameraManager(QObject *parent)
             this, &CameraManager::handleCameraDeleted);
     connect(m_apiService, &CameraApiService::cameraStatusUpdated,
             this, &CameraManager::handleCameraStatusUpdated);
+    
+    // Connect to ConfigManager for user switching
+    connect(&ConfigManager::instance(), &ConfigManager::userSwitched,
+            this, &CameraManager::handleUserSwitched);
 }
 
 CameraManager::~CameraManager()
@@ -363,5 +367,28 @@ void CameraManager::handleCameraStatusUpdated(const QString& localCameraId, bool
     } else {
         LOG_WARNING(QString("Failed to update camera status on server: %1 - %2")
                    .arg(localCameraId, error), "CameraManager");
+    }
+}
+
+void CameraManager::handleUserSwitched(const QString& userEmail)
+{
+    LOG_INFO(QString("User switched to: %1, reloading camera configuration").arg(userEmail.isEmpty() ? "logout" : userEmail), "CameraManager");
+    
+    // Stop all currently running cameras
+    stopAllCameras();
+    
+    // Reload configuration for the new user
+    loadConfiguration();
+    
+    // Notify that configuration has changed
+    emit configurationChanged();
+    
+    // Auto-start enabled cameras for the new user
+    if (!userEmail.isEmpty()) {
+        for (const CameraConfig& camera : m_cameras.values()) {
+            if (camera.isEnabled()) {
+                startCamera(camera.id());
+            }
+        }
     }
 }

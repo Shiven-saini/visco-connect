@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QSettings>
 #include <windows.h>
 #include <string>
 
@@ -148,7 +149,14 @@ int main(int argc, char *argv[])
             }
             LOG_INFO("User authenticated successfully", "Main");
         } else {
+            // Valid token found, switch to the authenticated user's configuration
             LOG_INFO("Valid authentication token found, skipping login dialog", "Main");
+            QSettings authSettings("ViscoConnect", "Auth");
+            QString userEmail = authSettings.value("user_email").toString();
+            if (!userEmail.isEmpty()) {
+                ConfigManager::instance().switchToUser(userEmail);
+                LOG_INFO(QString("Loaded configuration for authenticated user: %1").arg(userEmail), "Main");
+            }
         }
 
         // Check if system tray is available

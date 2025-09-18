@@ -11,12 +11,13 @@
 #include <QString>
 #include <QHash>
 #include "CameraConfig.h"
+#include "WireGuardManager.h"
 
 // Enum for sync operation types
 enum class SyncOperationType {
     CREATE,
     UPDATE,
-    DELETE,
+    DELETE_CAMERA,  // Renamed to avoid Windows macro conflict
     STATUS_UPDATE
 };
 
@@ -39,7 +40,7 @@ class CameraApiService : public QObject
     Q_OBJECT
 
 public:
-    explicit CameraApiService(QObject *parent = nullptr);
+    explicit CameraApiService(WireGuardManager* wireGuardManager, QObject *parent = nullptr);
     ~CameraApiService();
 
     // Main API operations
@@ -83,6 +84,7 @@ private:
     void showApiError(const QString& operation, const QString& error);
     QJsonObject cameraToApiJson(const CameraConfig& camera) const;
     QString getStatusString(bool isEnabled) const;
+    QString getWireGuardIP() const;
     void performCameraStatusUpdate(const QString& localCameraId, const QString& serverCameraId, const QString& status);
     void performCameraStatusUpdateWithFullData(const CameraConfig& camera, bool isActive);
     
@@ -93,6 +95,7 @@ private:
     bool m_isOnline;
     bool m_isSyncing;
     QString m_baseUrl;
+    WireGuardManager* m_wireGuardManager;
     
     // Track ongoing operations to associate responses
     QHash<QNetworkReply*, QString> m_replyToOperationMap;
