@@ -19,6 +19,7 @@
 #include "CameraManager.h"
 #include "SystemTrayManager.h"
 #include "VpnWidget.h"
+#include "CameraPreviewWidget.h"
 
 QT_BEGIN_NAMESPACE
 class QAction;
@@ -50,6 +51,8 @@ protected:
 public slots:
     void editCamera();
     void testCamera();
+    void previewCamera();
+    void openCameraPreviewWindow();
 
 private slots:
     void addCamera();
@@ -82,6 +85,9 @@ private slots:
     void onPingReceived(const QString& sourceAddress, quint16 identifier, quint16 sequence);
     void onPingReplied(const QString& sourceAddress, quint16 identifier, quint16 sequence, quint32 responseTime);
     void onPingResponderError(const QString& error);
+    
+    // Context menu slots
+    void showCameraContextMenu(const QPoint& position);
 
 private:
     void createMenuBar();
@@ -105,6 +111,12 @@ private:
     QPushButton* m_removeButton;
     QPushButton* m_toggleButton;
     QPushButton* m_testButton;
+    QPushButton* m_previewButton;
+    
+    // Camera preview panel
+    QGroupBox* m_previewGroupBox;
+    CameraPreviewWidget* m_previewWidget;
+    QPushButton* m_previewWindowButton;
     
     // Service control
     QGroupBox* m_serviceGroupBox;
@@ -129,7 +141,12 @@ private:
     QAction* m_exitAction;
     QAction* m_installServiceAction;
     QAction* m_uninstallServiceAction;
-    QAction* m_aboutAction;    // Core components
+    QAction* m_aboutAction;
+    
+    // Preview actions with shortcuts
+    QAction* m_previewSelectedAction;
+    QAction* m_previewWindowAction;
+    QAction* m_stopPreviewAction;    // Core components
     CameraManager* m_cameraManager;
     SystemTrayManager* m_trayManager;
     NetworkInterfaceManager* m_networkManager;
@@ -142,6 +159,7 @@ private:
     QProcess* m_pingProcess;
     QString m_currentTestingCameraId;
     QTimer* m_statisticsRefreshTimer;
+    QList<CameraPreviewWindow*> m_previewWindows;
 };
 
 #endif // MAINWINDOW_H

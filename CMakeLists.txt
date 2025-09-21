@@ -12,7 +12,7 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 # Attempt to find Qt6. If this fails, we will search common MinGW paths.
-find_package(Qt6 COMPONENTS Core Widgets Network)
+find_package(Qt6 COMPONENTS Core Widgets Network Multimedia MultimediaWidgets)
 
 # If Qt6 was not found automatically, search for it in common MinGW locations
 if(NOT Qt6_FOUND)
@@ -37,7 +37,7 @@ if(NOT Qt6_FOUND)
             set(CMAKE_PREFIX_PATH "${QT_PATH}" ${CMAKE_PREFIX_PATH})
             
             # Try to find the package again with the new hint
-            find_package(Qt6 COMPONENTS Core Widgets Network)
+            find_package(Qt6 COMPONENTS Core Widgets Network Multimedia MultimediaWidgets)
             
             if(Qt6_FOUND)
                 break() # Exit the loop if Qt is found
@@ -68,6 +68,7 @@ set(SOURCES
     src/CameraConfig.cpp
     src/CameraManager.cpp
     src/CameraApiService.cpp
+    src/CameraPreviewWidget.cpp
     src/PortForwarder.cpp
     src/WindowsService.cpp
     src/SystemTrayManager.cpp
@@ -90,6 +91,7 @@ set(HEADERS
     include/CameraConfig.h
     include/CameraManager.h
     include/CameraApiService.h
+    include/CameraPreviewWidget.h
     include/PortForwarder.h
     include/WindowsService.h
     include/SystemTrayManager.h
@@ -125,7 +127,7 @@ include_directories(include)
 add_executable(ViscoConnect WIN32 ${SOURCES} ${HEADERS} ${RESOURCES} ${WIN32_RESOURCES})
 
 # Link Qt6 libraries
-target_link_libraries(ViscoConnect PRIVATE Qt6::Core Qt6::Widgets Qt6::Network)
+target_link_libraries(ViscoConnect PRIVATE Qt6::Core Qt6::Widgets Qt6::Network Qt6::Multimedia Qt6::MultimediaWidgets)
 
 # Link Windows system libraries for WireGuard integration
 if(WIN32)

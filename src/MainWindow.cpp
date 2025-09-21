@@ -8,6 +8,7 @@
 #include "NetworkInterfaceManager.h"
 #include "EchoServer.h"
 #include "PingResponder.h"
+#include "CameraPreviewWidget.h"
 #include <QApplication>
 #include <QScreen>
 #include <QMenuBar>
@@ -1639,6 +1640,35 @@ void MainWindow::createMenuBar()
     connect(m_exitAction, &QAction::triggered, this, &QWidget::close);
     m_fileMenu->addAction(m_exitAction);
     
+    // Preview menu
+    QMenu* previewMenu = menuBar()->addMenu("&Preview");
+    
+    m_previewSelectedAction = new QAction("&Preview Selected Camera", this);
+    m_previewSelectedAction->setShortcut(QKeySequence(Qt::Key_F5));
+    m_previewSelectedAction->setEnabled(false);
+    connect(m_previewSelectedAction, &QAction::triggered, this, &MainWindow::previewCamera);
+    previewMenu->addAction(m_previewSelectedAction);
+    
+    m_previewWindowAction = new QAction("Preview in &New Window", this);
+    m_previewWindowAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_N));
+    m_previewWindowAction->setEnabled(false);
+    connect(m_previewWindowAction, &QAction::triggered, this, &MainWindow::openCameraPreviewWindow);
+    previewMenu->addAction(m_previewWindowAction);
+    
+    previewMenu->addSeparator();
+    
+    m_stopPreviewAction = new QAction("&Stop Preview", this);
+    m_stopPreviewAction->setShortcut(QKeySequence(Qt::Key_Escape));
+    connect(m_stopPreviewAction, &QAction::triggered, [this]() {
+        if (m_previewWidget->hasCamera()) {
+            m_previewWidget->stop();
+            m_previewWidget->clearCamera();
+            updateButtons();
+            showMessage("Preview stopped");
+        }
+    });
+    previewMenu->addAction(m_stopPreviewAction);
+    
     // Service menu
     m_serviceMenu = menuBar()->addMenu("&Service");
     
@@ -1686,8 +1716,8 @@ void MainWindow::createCentralWidget()
     // Camera management group
     m_cameraGroupBox = new QGroupBox("Camera Configuration");
     QVBoxLayout* cameraLayout = new QVBoxLayout(m_cameraGroupBox);    // Camera table
-    m_cameraTable = new QTableWidget(0, 11);
-    QStringList headers = {"#", "Name", "Brand", "Model", "IP Address", "Port", "External Port", "Status", "Connections", "Data Transferred", "Actions"};
+    m_cameraTable = new QTableWidget(0, 12);
+    QStringList headers = {"#", "Name", "Brand", "Model", "IP Address", "Port", "External Port", "Status", "Connections", "Data Transferred", "Preview", "Actions"};
     m_cameraTable->setHorizontalHeaderLabels(headers);
     m_cameraTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_cameraTable->setAlternatingRowColors(true);
@@ -1703,6 +1733,7 @@ void MainWindow::createCentralWidget()
     m_cameraTable->setColumnWidth(7, 80);   // Status
     m_cameraTable->setColumnWidth(8, 90);   // Connections
     m_cameraTable->setColumnWidth(9, 120);  // Data Transferred
+    m_cameraTable->setColumnWidth(10, 80);  // Preview
     // Actions column will stretch to fill remaining space
     m_cameraTable->horizontalHeader()->setStretchLastSection(true);
     
@@ -1714,6 +1745,7 @@ void MainWindow::createCentralWidget()
     m_removeButton = new QPushButton("Remove Camera");
     m_toggleButton = new QPushButton("Start/Stop");
     m_testButton = new QPushButton("Test Camera");
+    m_previewButton = new QPushButton("Preview Camera");
     
     cameraButtonLayout->addWidget(m_addButton);
     cameraButtonLayout->addWidget(m_discoverButton);
@@ -1721,6 +1753,7 @@ void MainWindow::createCentralWidget()
     cameraButtonLayout->addWidget(m_removeButton);
     cameraButtonLayout->addWidget(m_toggleButton);
     cameraButtonLayout->addWidget(m_testButton);
+    cameraButtonLayout->addWidget(m_previewButton);
     cameraButtonLayout->addStretch();
     
     cameraLayout->addLayout(cameraButtonLayout);
@@ -1772,7 +1805,52 @@ void MainWindow::createCentralWidget()
     // Left side - Camera and Service controls
     QWidget* leftWidget = new QWidget;
     QVBoxLayout* leftLayout = new QVBoxLayout(leftWidget);    leftLayout->addWidget(m_cameraGroupBox);
-    leftLayout->addWidget(m_serviceGroupBox);    // Right side - Network and User Profile controls in vertical layout
+    leftLayout->addWidget(m_serviceGroupBox);
+    
+    // Camera Preview Panel
+    m_previewGroupBox = new QGroupBox("Camera Preview");
+    QVBoxLayout* previewLayout = new QVBoxLayout(m_previewGroupBox);
+    
+    m_previewWidget = new CameraPreviewWidget(this);
+    m_previewWidget->setCompactMode(false);
+    m_previewWidget->setMaximumHeight(300);
+    m_previewWidget->setMinimumHeight(200);
+    previewLayout->addWidget(m_previewWidget);
+    
+    // Connect preview widget signals for status updates
+    connect(m_previewWidget, &CameraPreviewWidget::connectionEstablished,
+            this, [this]() {
+                showMessage("Camera preview connected successfully");
+                m_previewGroupBox->setTitle(QString("Camera Preview - %1 (Connected)").arg(m_previewWidget->getCamera().name()));
+            });
+            
+    connect(m_previewWidget, &CameraPreviewWidget::connectionLost,
+            this, [this]() {
+                showMessage("Camera preview connection lost");
+                m_previewGroupBox->setTitle(QString("Camera Preview - %1 (Disconnected)").arg(m_previewWidget->getCamera().name()));
+            });
+            
+    connect(m_previewWidget, &CameraPreviewWidget::errorOccurred,
+            this, [this](const QString& error) {
+                showMessage(QString("Camera preview error: %1").arg(error));
+                m_previewGroupBox->setTitle(QString("Camera Preview - %1 (Error)").arg(m_previewWidget->getCamera().name()));
+            });
+            
+    connect(m_previewWidget, &CameraPreviewWidget::snapshotTaken,
+            this, [this](const QString& filePath) {
+                showMessage(QString("Snapshot saved: %1").arg(filePath));
+            });
+    
+    // Preview window button
+    QHBoxLayout* previewButtonLayout = new QHBoxLayout;
+    m_previewWindowButton = new QPushButton("Open in Separate Window");
+    m_previewWindowButton->setEnabled(false);
+    connect(m_previewWindowButton, &QPushButton::clicked, this, &MainWindow::openCameraPreviewWindow);
+    previewButtonLayout->addWidget(m_previewWindowButton);
+    previewButtonLayout->addStretch();
+    previewLayout->addLayout(previewButtonLayout);
+    
+    leftLayout->addWidget(m_previewGroupBox);    // Right side - Network and User Profile controls in vertical layout
     QWidget* rightWidget = new QWidget;
     QVBoxLayout* rightLayout = new QVBoxLayout(rightWidget);
     rightLayout->setSpacing(12);
@@ -1806,13 +1884,19 @@ void MainWindow::setupConnections()
     connect(m_cameraTable, &QTableWidget::itemSelectionChanged,
             this, &MainWindow::onCameraSelectionChanged);
     connect(m_cameraTable, &QTableWidget::itemDoubleClicked,
-            this, &MainWindow::showCameraInfo);// Camera buttons
+            this, &MainWindow::showCameraInfo);
+    connect(m_cameraTable, &QTableWidget::customContextMenuRequested,
+            this, &MainWindow::showCameraContextMenu);
+    
+    // Enable context menu for camera table
+    m_cameraTable->setContextMenuPolicy(Qt::CustomContextMenu);// Camera buttons
     connect(m_addButton, &QPushButton::clicked, this, &MainWindow::addCamera);
     connect(m_discoverButton, &QPushButton::clicked, this, &MainWindow::discoverCameras);
     connect(m_editButton, &QPushButton::clicked, this, &MainWindow::editCamera);
     connect(m_removeButton, &QPushButton::clicked, this, &MainWindow::removeCamera);
     connect(m_toggleButton, &QPushButton::clicked, this, &MainWindow::toggleCamera);
     connect(m_testButton, &QPushButton::clicked, this, &MainWindow::testCamera);
+    connect(m_previewButton, &QPushButton::clicked, this, &MainWindow::previewCamera);
     
     // Service buttons
     connect(m_startAllButton, &QPushButton::clicked, this, &MainWindow::startAllCameras);
@@ -1955,6 +2039,28 @@ void MainWindow::updateCameraTable()
         dataItem->setTextAlignment(Qt::AlignCenter);
         m_cameraTable->setItem(i, 9, dataItem);
         
+        // Preview column - preview button for each camera
+        QWidget* previewWidget = new QWidget();
+        QHBoxLayout* previewLayout = new QHBoxLayout(previewWidget);
+        previewLayout->setContentsMargins(2, 2, 2, 2);
+        previewLayout->setSpacing(2);
+        
+        QPushButton* previewBtn = new QPushButton("👁");
+        previewBtn->setToolTip("Preview Camera Stream");
+        previewBtn->setMaximumWidth(30);
+        previewBtn->setMaximumHeight(25);
+        connect(previewBtn, &QPushButton::clicked, [this, camera]() {
+            m_previewWidget->setCamera(camera);
+            m_previewWidget->play();
+            updateButtons();
+            showMessage(QString("Started preview for: %1").arg(camera.name()));
+        });
+        
+        previewLayout->addWidget(previewBtn);
+        previewLayout->addStretch();
+        
+        m_cameraTable->setCellWidget(i, 10, previewWidget);
+        
         // Actions column - control buttons for each camera
         QWidget* actionWidget = new QWidget();
         QHBoxLayout* actionLayout = new QHBoxLayout(actionWidget);
@@ -1995,7 +2101,7 @@ void MainWindow::updateCameraTable()
         actionLayout->addWidget(testBtn);
         actionLayout->addStretch();
         
-        m_cameraTable->setCellWidget(i, 10, actionWidget);
+        m_cameraTable->setCellWidget(i, 11, actionWidget);
     }
     
     // Resize columns to content
@@ -2010,6 +2116,11 @@ void MainWindow::updateButtons()
     m_removeButton->setEnabled(hasSelection);
     m_toggleButton->setEnabled(hasSelection);
     m_testButton->setEnabled(hasSelection);
+    m_previewButton->setEnabled(hasSelection);
+    
+    // Update menu actions
+    m_previewSelectedAction->setEnabled(hasSelection);
+    m_previewWindowAction->setEnabled(hasSelection && m_previewWidget->hasCamera());
     
     m_startAllButton->setEnabled(hasCamera);
     m_stopAllButton->setEnabled(hasCamera);
@@ -2025,6 +2136,9 @@ void MainWindow::updateButtons()
     } else {
         m_toggleButton->setText("Start/Stop");
     }
+    
+    // Update preview window button
+    m_previewWindowButton->setEnabled(hasSelection && m_previewWidget->hasCamera());
 }
 
 void MainWindow::loadSettings()
@@ -2189,6 +2303,212 @@ void MainWindow::disconnectVpnOnLogout()
         LOG_INFO("User logout - disconnecting VPN and cleaning up configuration", "MainWindow");
         m_vpnWidget->disconnectAndCleanupOnLogout();
     }
+}
+
+void MainWindow::previewCamera()
+{
+    int currentRow = m_cameraTable->currentRow();
+    if (currentRow < 0) {
+        QMessageBox::warning(this, "Visco Connect - No Selection", "Please select a camera to preview.");
+        return;
+    }
+    
+    QTableWidgetItem* idItem = m_cameraTable->item(currentRow, 0);
+    if (!idItem) {
+        QMessageBox::warning(this, "Visco Connect - Error", "Unable to get camera information.");
+        return;
+    }
+    
+    QString cameraId = idItem->data(Qt::UserRole).toString();
+    QList<CameraConfig> cameras = ConfigManager::instance().getAllCameras();
+    
+    CameraConfig selectedCamera;
+    for (const auto& camera : cameras) {
+        if (camera.id() == cameraId) {
+            selectedCamera = camera;
+            break;
+        }
+    }
+    
+    if (!selectedCamera.isValid()) {
+        QMessageBox::warning(this, "Visco Connect - Error", "Selected camera configuration is invalid.");
+        return;
+    }
+    
+    // Set the camera in the main preview widget
+    m_previewWidget->setCamera(selectedCamera);
+    m_previewWidget->play();
+    
+    updateButtons();
+    
+    LOG_INFO(QString("Started camera preview for: %1").arg(selectedCamera.name()), "MainWindow");
+    showMessage(QString("Camera preview started for: %1").arg(selectedCamera.name()));
+}
+
+void MainWindow::openCameraPreviewWindow()
+{
+    if (!m_previewWidget->hasCamera()) {
+        QMessageBox::warning(this, "Visco Connect - No Camera", "Please select a camera to preview first.");
+        return;
+    }
+    
+    CameraConfig camera = m_previewWidget->getCamera();
+    
+    // Create new preview window
+    CameraPreviewWindow* previewWindow = new CameraPreviewWindow(camera, this);
+    
+    // Track the window
+    m_previewWindows.append(previewWindow);
+    
+    // Connect window destroyed signal to clean up our list
+    connect(previewWindow, &QObject::destroyed, this, [this, previewWindow]() {
+        m_previewWindows.removeAll(previewWindow);
+    });
+    
+    // Connect preview widget signals for status updates
+    connect(previewWindow->getPreviewWidget(), &CameraPreviewWidget::connectionEstablished,
+            this, [this, camera]() {
+                showMessage(QString("Preview window connected to: %1").arg(camera.name()));
+            });
+    
+    connect(previewWindow->getPreviewWidget(), &CameraPreviewWidget::errorOccurred,
+            this, [this, camera](const QString& error) {
+                showMessage(QString("Preview window error for %1: %2").arg(camera.name(), error));
+            });
+    
+    previewWindow->show();
+    previewWindow->raise();
+    previewWindow->activateWindow();
+    
+    LOG_INFO(QString("Opened preview window for camera: %1").arg(camera.name()), "MainWindow");
+    showMessage(QString("Opened preview window for: %1").arg(camera.name()));
+}
+
+void MainWindow::showCameraContextMenu(const QPoint& position)
+{
+    QTableWidgetItem* item = m_cameraTable->itemAt(position);
+    if (!item) {
+        return;
+    }
+    
+    int row = item->row();
+    QTableWidgetItem* idItem = m_cameraTable->item(row, 0);
+    if (!idItem) {
+        return;
+    }
+    
+    QString cameraId = idItem->data(Qt::UserRole).toString();
+    QList<CameraConfig> cameras = ConfigManager::instance().getAllCameras();
+    
+    CameraConfig selectedCamera;
+    for (const auto& camera : cameras) {
+        if (camera.id() == cameraId) {
+            selectedCamera = camera;
+            break;
+        }
+    }
+    
+    if (!selectedCamera.isValid()) {
+        return;
+    }
+    
+    QMenu contextMenu(this);
+    
+    // Preview actions
+    QAction* previewAction = contextMenu.addAction("📺 Preview in Panel");
+    previewAction->setIcon(QIcon(":/icons/preview.png"));
+    connect(previewAction, &QAction::triggered, [this, selectedCamera]() {
+        m_previewWidget->setCamera(selectedCamera);
+        m_previewWidget->play();
+        updateButtons();
+        showMessage(QString("Started preview for: %1").arg(selectedCamera.name()));
+    });
+    
+    QAction* previewWindowAction = contextMenu.addAction("🗔 Preview in New Window");
+    previewWindowAction->setIcon(QIcon(":/icons/window.png"));
+    connect(previewWindowAction, &QAction::triggered, [this, selectedCamera]() {
+        CameraPreviewWindow* previewWindow = new CameraPreviewWindow(selectedCamera, this);
+        m_previewWindows.append(previewWindow);
+        connect(previewWindow, &QObject::destroyed, this, [this, previewWindow]() {
+            m_previewWindows.removeAll(previewWindow);
+        });
+        previewWindow->show();
+        previewWindow->raise();
+        previewWindow->activateWindow();
+    });
+    
+    contextMenu.addSeparator();
+    
+    // Camera operations
+    bool isRunning = m_cameraManager->isCameraRunning(selectedCamera.id());
+    
+    QAction* toggleAction = contextMenu.addAction(isRunning ? "⏹ Stop Camera" : "▶ Start Camera");
+    connect(toggleAction, &QAction::triggered, [this, selectedCamera, isRunning]() {
+        if (isRunning) {
+            m_cameraManager->stopCamera(selectedCamera.id());
+        } else {
+            m_cameraManager->startCamera(selectedCamera.id());
+        }
+    });
+    
+    QAction* testAction = contextMenu.addAction("🔍 Test Connection");
+    connect(testAction, &QAction::triggered, [this, selectedCamera]() {
+        // Select the camera row first
+        for (int i = 0; i < m_cameraTable->rowCount(); ++i) {
+            QTableWidgetItem* idItem = m_cameraTable->item(i, 0);
+            if (idItem && idItem->data(Qt::UserRole).toString() == selectedCamera.id()) {
+                m_cameraTable->selectRow(i);
+                break;
+            }
+        }
+        testCamera();
+    });
+    
+    contextMenu.addSeparator();
+    
+    // Configuration actions
+    QAction* editAction = contextMenu.addAction("✏ Edit Camera");
+    connect(editAction, &QAction::triggered, [this, selectedCamera]() {
+        // Select the camera row first
+        for (int i = 0; i < m_cameraTable->rowCount(); ++i) {
+            QTableWidgetItem* idItem = m_cameraTable->item(i, 0);
+            if (idItem && idItem->data(Qt::UserRole).toString() == selectedCamera.id()) {
+                m_cameraTable->selectRow(i);
+                break;
+            }
+        }
+        editCamera();
+    });
+    
+    QAction* infoAction = contextMenu.addAction("ℹ Camera Information");
+    connect(infoAction, &QAction::triggered, [this, selectedCamera]() {
+        for (int i = 0; i < m_cameraTable->rowCount(); ++i) {
+            QTableWidgetItem* idItem = m_cameraTable->item(i, 0);
+            if (idItem && idItem->data(Qt::UserRole).toString() == selectedCamera.id()) {
+                m_cameraTable->selectRow(i);
+                break;
+            }
+        }
+        showCameraInfo();
+    });
+    
+    contextMenu.addSeparator();
+    
+    QAction* removeAction = contextMenu.addAction("🗑 Remove Camera");
+    removeAction->setIcon(QIcon(":/icons/delete.png"));
+    connect(removeAction, &QAction::triggered, [this, selectedCamera]() {
+        for (int i = 0; i < m_cameraTable->rowCount(); ++i) {
+            QTableWidgetItem* idItem = m_cameraTable->item(i, 0);
+            if (idItem && idItem->data(Qt::UserRole).toString() == selectedCamera.id()) {
+                m_cameraTable->selectRow(i);
+                break;
+            }
+        }
+        removeCamera();
+    });
+    
+    // Show the context menu
+    contextMenu.exec(m_cameraTable->mapToGlobal(position));
 }
 
 #include "MainWindow.moc" // Include MOC file for Q_OBJECT in CameraConfigDialog
